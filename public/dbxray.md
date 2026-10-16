@@ -17,53 +17,50 @@ agreed_posting_campaign_term: false
 ---
 ## はじめに
 
-以前、[【PostgreSQL】Markdown形式のテーブル定義書を自動生成するツールを作ってみた](https://qiita.com/ebichan_88/items/bc1ad07b6a7fd1479290)という記事で、テーブル定義書を自動生成するツール（exportTableDefinition）を紹介しました。
-
 先日、業務で自分があまり詳しくないサブシステムのテーブル構造を理解する必要がありました。
-そこで、元々後から改善しようと思っていたSQLの修正や、ER図の出力に対応しようと思い、このツールに手を入れることにしました。
+
+そこで、以前[【PostgreSQL】Markdown形式のテーブル定義書を自動生成するツールを作ってみた](https://qiita.com/ebichan_88/items/bc1ad07b6a7fd1479290)で紹介したツールに手を入れることにしました。
+当時はテーブル定義書しか出せなかったので、元々後から改善しようと思っていたSQLの修正とあわせて、ER図を出力できるようにしようと思ったのがきっかけです。
 
 そのあと作りながら、ほしい機能が増えていき・・。
-気づけば、出力したデータをAIから検索できるMCPサーバーまで付いていました。
-名前もexportTableDefinitionからdbxrayに変えています[^1]。
+最終的には、テーブル定義書・ER図に加えて、AIにテーブル構造を答えさせるMCPサーバーまで付いたツールになりました。
+名前もdbxrayに変えています[^1]。
 
-[^1]: exportTableDefinitionはテーブル定義書に特化した名前だったので、もう少し汎用的な名前にしたいと思っていました。最初はGitLensをイメージして「dblens」にしようと思ったのですが、すでに同じ名前のリポジトリが存在しているようだったので、かぶってなさそうな名前にしました。
+[^1]: 元の名前のexportTableDefinitionはテーブル定義書に特化した名前だったので、もう少し汎用的な名前にしたいと思っていました。最初はGitLensをイメージして「dblens」にしようと思ったのですが、すでに同じ名前のリポジトリが存在しているようだったので、かぶってなさそうな名前にしました。
 
-本記事は、dbxrayの紹介に加えて、自分が実際に使ってみたいと思って作った**ER図の出力**と**MCPサーバー**の仕組みを紹介する記事です。
+例えば、MCPサーバーを登録したClaude Codeには、以下のようなことを聞けます。
 
-なお、今回の改修のほとんどはClaude Codeに実装してもらっています。
-開発の進め方については、後半で軽く触れます。
+- 従業員まわりのテーブルを探して
+- 監査ログから部署名を出したいけど、どうJOINすればいい？
+- employeeテーブルを変更したら、どこに影響する？
+- employeeと構造が似たテーブルはある？
+
+本記事では、dbxrayでできることと、自分が実際に使ってみたいと思って作った**ER図の出力**と**MCPサーバー**の仕組みを紹介します。
 
 ## 想定読者
 
 - 巨大なシステムで、テーブル定義書などのドキュメントが整備されていない環境で開発している方
-- AI（Claude Code等）にコードを書かせるときに、テーブルの構造もAIに調べてもらいたい方
+- Claude Code等のAIにコードを書かせるときに、テーブルの構造もAIに調べてもらいたい方
 
 ## 前提
 
 :::note info
-- dbxray v0.4.2（2026年10月時点の最新版）
-- 対応DBMS: PostgreSQL 13以上、Oracle 12c以上
-- Java 21（配布用のzipにJava実行環境を同梱しているため、使うだけならJavaのインストールは不要です）
+本記事の内容は、執筆時点で最新のv0.4.2に基づいています。
+対応しているDBMSはPostgreSQL 13以上とOracle 12c以上で、Java 21で動きます。
+配布用のzipにはJava実行環境を同梱しているので、使うだけならJavaのインストールは不要です。
 :::
 
 GitHubのリポジトリは[こちら（dbxray）](https://github.com/ebichan88/dbxray)です。
 
-全機能は書ききれないので、本記事では概要と、ER図・MCPサーバーの仕組みに絞って紹介します。
+本記事の出力例・実行例は、すべてリポジトリに同梱しているサンプルのDBから出力したものです。
 細かい設定や出力の仕様は、[CLIリファレンス](https://github.com/ebichan88/dbxray/blob/main/docs/usage/cli.md)と[MCPサーバーのドキュメント](https://github.com/ebichan88/dbxray/blob/main/docs/usage/mcp-server.md)をご覧ください。
-
-:::note warn
-作り込んでからは、実務ではまだ全然使えていません（これから個人的に試していこうと思っています）。
-本記事の出力例・実行例は、リポジトリに同梱しているサンプルのDB（PostgreSQL）から出力したものです。
-:::
 
 ## 目次 <!-- omit in toc -->
 
 - [dbxrayとは](#dbxrayとは)
-  - [概要](#概要)
-  - [前回の記事から変わったこと](#前回の記事から変わったこと)
 - [使い方](#使い方)
   - [入手と実行](#入手と実行)
-  - [DBに無い情報を書き足す（サイドカーYAML）](#dbに無い情報を書き足すサイドカーyaml)
+  - [サイドカーYAMLでDBに無い情報を書き足す](#サイドカーyamlでdbに無い情報を書き足す)
   - [ドキュメントの更新漏れを検知する](#ドキュメントの更新漏れを検知する)
 - [ER図の出力について](#er図の出力について)
   - [出力例](#出力例)
@@ -71,23 +68,17 @@ GitHubのリポジトリは[こちら（dbxray）](https://github.com/ebichan88/
   - [大きなスキーマのER図を分割する](#大きなスキーマのer図を分割する)
   - [多重度の判定](#多重度の判定)
 - [MCPサーバーでAIにテーブル構造を答えさせる](#mcpサーバーでaiにテーブル構造を答えさせる)
-  - [MCPサーバーを作った経緯](#mcpサーバーを作った経緯)
   - [全体像](#全体像)
   - [設定方法](#設定方法)
-  - [使えるツール](#使えるツール)
-  - [実際に聞いてみた](#実際に聞いてみた)
+  - [AIに聞けること](#aiに聞けること)
   - [構造の似たテーブルを探す仕組み](#構造の似たテーブルを探す仕組み)
-  - [AIに使ってもらうための設計](#aiに使ってもらうための設計)
-  - [stdioで動かすときの注意点](#stdioで動かすときの注意点)
-- [開発の進め方について](#開発の進め方について)
-  - [Claude Codeでの進め方](#claude-codeでの進め方)
-  - [苦労したこと](#苦労したこと)
+  - [ツールの一覧](#ツールの一覧)
+  - [MCP Java SDKで作るときの注意点](#mcp-java-sdkで作るときの注意点)
+- [開発で苦労したこと](#開発で苦労したこと)
 - [おわりに](#おわりに)
 - [参考サイト](#参考サイト)
 
 ## dbxrayとは
-
-### 概要
 
 dbxrayは、DBに接続して、テーブル一覧・テーブル定義書・ER図などをMarkdown形式で出力するツールです。
 あわせて、出力したデータをAIから検索できるようにするMCPサーバーも同梱しています。
@@ -98,13 +89,13 @@ dbxrayは、DBに接続して、テーブル一覧・テーブル定義書・ER�
 |:---|:---|
 | テーブル一覧 | 対象のテーブルの一覧と、各テーブル定義書へのリンク |
 | テーブル定義書 | カラム・インデックス・制約・外部キー・被参照・トリガーの情報など |
-| ER図 | 外部キーの関係を表すMermaid記法の図（テーブル単位・スキーマ単位） |
-| 観点ごとのページ | 業務の単位（人事管理、受注管理など）でまとめたテーブルのER図と一覧 |
+| ER図 | 外部キーの関係を表すMermaid記法の図。テーブル単位とスキーマ単位で出力する |
+| 観点ごとのページ | 人事管理などの業務の単位でまとめた、テーブルのER図と一覧 |
 | 関数・シーケンス・ユーザー定義型の一覧と個別ページ | 関数・プロシージャの定義本体や、ENUMの値など |
 | README | 出力した全ドキュメントへの索引と、スキーマごとのオブジェクトの数の集計 |
-| スナップショット | 上記と同じ情報を、機械可読なJSON Lines形式にしたもの |
+| スナップショット | 上記と同じ情報を、機械可読なJSON Lines形式にしたもの。MCPサーバーはこれを読む |
 
-テーブル定義書は、前回の記事と同じく、論理名・物理名・データ型・桁数などを並べた形で出力します。
+テーブル定義書は、論理名・物理名・データ型・桁数などを並べた形で出力します。
 以下は、サンプルのDBの`employee`テーブルのカラム情報の先頭6行です。
 
 | No. | 論理名 | 物理名 | データ型 | 桁数/精度 | PK | Not Null | デフォルト | 備考 |
@@ -116,27 +107,13 @@ dbxrayは、DBに接続して、テーブル一覧・テーブル定義書・ER�
 |5|上長の従業員ID|manager_id|integer||||||
 |6|駐車場ID|parking_spot_id|integer||||||
 
-出力のサンプルは[こちら（サンプルのDBのREADME）](https://github.com/ebichan88/dbxray/blob/main/docs/sample/postgres/output/testdb/README.md)から辿れます。
-
-### 前回の記事から変わったこと
-
-前回の記事の時点（exportTableDefinition）と比べると、以下のように変わっています。
-
-| 項目 | 前回（exportTableDefinition） | 今回（dbxray v0.4.2） |
-|:---|:---|:---|
-| 出力するもの | テーブル一覧・テーブル定義書 | ＋ER図・観点ごとのページ・関数等の個別ページ・README |
-| Oracle | 一部制限あり（デフォルト値・ビューのソース・Check制約の定義が出力不可） | PostgreSQLと同じ種類のオブジェクトを出力 |
-| DBに無い情報 | テーブル説明の枠を用意しているだけ | サイドカーYAMLで説明・備考・論理リレーション・観点を書き足せる |
-| 機械可読な出力 | なし | スナップショット（JSON Lines） |
-| CIでの利用 | なし | `--check`でDBとドキュメントの差分を検知 |
-| 配布形式 | 実行可能形式のJarファイル | Java実行環境を同梱したzip（Windows／Linux／macOS） |
-| AIからの利用 | なし | MCPサーバー |
+出力のサンプル全体は、[サンプルのDBのREADME](https://github.com/ebichan88/dbxray/blob/main/docs/sample/postgres/output/testdb/README.md)から辿れます。
 
 ## 使い方
 
 ### 入手と実行
 
-[Releases](https://github.com/ebichan88/dbxray/releases/latest)から、OSに合ったzip（`dbxray-windows.zip`など）をダウンロードして展開します。
+[Releases](https://github.com/ebichan88/dbxray/releases/latest)から、OSに合ったzipをダウンロードして展開します。
 
 展開したら、`conf/config.yml`に接続先のDBの情報を書きます。
 
@@ -179,18 +156,22 @@ output
          └─functions.jsonl
 ```
 
-### DBに無い情報を書き足す（サイドカーYAML）
+### サイドカーYAMLでDBに無い情報を書き足す
 
-現行のDBだと、外部キー制約が張られていなかったり、コメント（論理名）が書かれていなかったりと、DBのメタ情報だけでは分からないことも多いかと思います。
+現行のDBだと、外部キー制約が張られていなかったり、論理名となるコメントが書かれていなかったりと、DBのメタ情報だけでは分からないことも多いかと思います。
 
 そこで、DBに無い情報は**サイドカーYAML**というファイルに書いて、出力にマージできるようにしています。
 書けるのは以下の3種類です。
 
-- `tables`: テーブルの説明・備考、カラムの備考
-- `relations`: 外部キー制約の無いテーブル間の関連（論理リレーション）
+- `tables`: テーブルの説明・備考と、カラムの備考
+- `relations`: 外部キー制約の無いテーブル間の関連を、論理リレーションとして宣言する
 - `viewpoints`: 業務の単位でテーブルをまとめる観点
 
 ```yaml:annotations.sample.yml（サンプルから抜粋）
+tables:
+  sample.audit_log:
+    description: employeeテーブルの変更を記録する監査ログ。トリガー経由でのみ書き込まれる。
+
 relations:
   - table: sample.audit_log            # 参照元（子）
     columns: [record_id]
@@ -216,6 +197,8 @@ sample_employee |o..o{ sample_audit_log : "record_id"
 
 観点を宣言すると、観点ごとにER図と所属テーブルの一覧をまとめたページが出力されます。
 スキーマ単位のER図は機械的なまとまりなので、人が読む単位でまとめたいときに使います。
+
+ここで書き足した説明・論理リレーション・観点は、後述するMCPサーバーからAIも引けるようになります。
 
 ### ドキュメントの更新漏れを検知する
 
@@ -253,7 +236,7 @@ Markdownの先頭に載せている生成日のように、実行するたびに
 ### 出力例
 
 ER図は、GitHubなどでそのまま図として表示できるMermaid記法で出力します。
-以下は、サンプルのDBの観点「人事管理」のページに出力されたER図です（QiitaもMermaidに対応しているので、そのまま貼り付けています）。
+以下は、サンプルのDBの観点「人事管理」のページに出力されたER図です。
 
 ```mermaid
 erDiagram
@@ -288,7 +271,8 @@ erDiagram
 ```
 
 テーブルの箱には、`テーブル名（論理テーブル名）`の見出しと、図に描いた関連をつなぐカラムだけを表示しています。
-全カラムを表示すると箱が大きくなりすぎるためです（テーブル定義書の中のER図だけは、自テーブルの全カラムを表示します）。
+全カラムを表示すると、箱が大きくなりすぎるためです。
+ただし、テーブル定義書の中のER図だけは、自テーブルの全カラムを表示します。
 
 ### 出力されるER図の種類
 
@@ -296,7 +280,7 @@ ER図は、以下の粒度で出力します。
 
 | 出力先 | 内容 |
 |:---|:---|
-| 各テーブル定義書の「ER図」セクション | 自テーブルと、直接の参照先・参照元のテーブル（段数は1〜3で変更可） |
+| 各テーブル定義書の「ER図」セクション | 自テーブルと、直接の参照先・参照元のテーブル。描く段数は1〜3で変更できる |
 | スキーマ別ER図 | スキーマ全体のER図 |
 | グループ別ER図 | スキーマが大きい場合に、つながったテーブルのまとまりごとに分割したER図 |
 | 観点ごとのページ | サイドカーYAMLで宣言した観点の、所属テーブル同士のER図 |
@@ -306,14 +290,15 @@ ER図は、以下の粒度で出力します。
 前回の記事では、テーブル数が多いとGitHub上でMarkdownがパースされなくなるため、テーブル一覧のファイルを分割する対応をしていました。
 ER図も、大きなスキーマを1枚に描くと線が入り乱れて読みにくくなるため、分割して出力するようにしています。
 
-具体的には、1枚に描くテーブルの数（ノード数）に上限（既定は80）を設けて、超えた場合は以下のように出し分けています。
-なお、ノード数として数えるのは、外部キーまたは論理リレーションによる関連を持つテーブルだけです。
+具体的には、1枚に描くテーブルの数に上限を設けていて、既定は80です。
+なお、ここで数えるのは、外部キーまたは論理リレーションによる関連を持つテーブルだけです。
+上限を超えた場合は、以下のように出し分けています。
 
 ```mermaid
 flowchart TD
-    A[スキーマ別ER図] --> B{ノード数が上限以内？}
+    A[スキーマ別ER図] --> B{テーブル数が上限以内？}
     B -->|はい| C[1枚に描画する]
-    B -->|いいえ| D[つながったテーブルのまとまり<br>（連結成分）を求める]
+    B -->|いいえ| D[つながったテーブルのまとまり<br>＝連結成分を求める]
     D --> E[上限に収まる範囲で<br>小さなまとまりを同じグループにまとめる]
     E --> F{グループが上限以内？}
     F -->|はい| G[グループ別ER図として描画する]
@@ -327,7 +312,7 @@ flowchart TD
 
 ### 多重度の判定
 
-関連線の多重度（1対多、1対1など）は、参照元のテーブルの外部キーのカラムに付いた制約から機械的に判定しています。
+関連線の多重度は、参照元のテーブルの外部キーのカラムに付いた制約から機械的に判定しています。
 外部キーそのものは関連があることしか示さないので、カラムが一意かどうかと、NOT NULLかどうかを合わせて見ています。
 
 | 外部キーのカラムが一意 | すべてNOT NULL | 多重度 | Mermaidの表記 |
@@ -342,7 +327,7 @@ flowchart TD
 - `employee.department_id`: NOT NULLで一意ではない → 1対多
 - `employee.manager_id`: NULLを許容し一意ではない → 0..1対多
 - `employee.parking_spot_id`: UNIQUEでNULLを許容 → 0..1対1
-- `employee_profile.employee_id`: 主キー（一意）かつNOT NULL → 1対1
+- `employee_profile.employee_id`: 主キーなので一意かつNOT NULL → 1対1
 
 一意かどうかは、カラム名の一致ではなく**包含関係**で判定しています。
 
@@ -355,7 +340,7 @@ ALTER TABLE child ADD UNIQUE (a);
 
 逆に、`UNIQUE (a, b)`があっても外部キーが`(a)`だけなら1対1にはなりません。
 
-また、一意制約だけでなく一意索引（`CREATE UNIQUE INDEX`）も判定に使いますが、PostgreSQLの部分インデックスは対象から外しています。
+また、一意制約だけでなく`CREATE UNIQUE INDEX`で作った一意索引も判定に使いますが、PostgreSQLの部分インデックスは対象から外しています。
 
 ```sql:判定から外す部分インデックスの例
 -- 削除されていない行の中での一意性しか保証しないため、多重度の判定には使わない
@@ -366,23 +351,8 @@ CREATE UNIQUE INDEX ON child (parent_id) WHERE deleted_at IS NULL;
 
 続いて、MCPサーバーについて紹介します。
 
-### MCPサーバーを作った経緯
-
-もともと、MCPサーバーを作ろうとは思っていませんでした。
-
-機能追加の案を検討するにあたり、類似ツール（当時は主に[tbls](https://github.com/k1LoW/tbls)）をベンチマークとして、Claudeに調査してもらいました。
-その過程で、スキーマの情報を機械可読な形で持つスナップショット（JSON Lines）を出力するようにしました。
-
-ところが・・・
-tblsとはツールのコンセプトが違うこともあり[^4]、スナップショットは実DBとの差分チェック（`--check`）以外に活用できる場面がなく、どうするべきか悩んでいました。
-スナップショットを利用した機能追加の案をAIに相談しても、あんまりピンとくる回答は無く・・。
-
-[^4]: 類似ツールとの比較では、tblsは開発中のスキーマをCIで継続的にドキュメント化・検査するためのツール、dbxrayは現行システムの読み解きのためのツール、と整理しました。比較の内容は[こちらのIssue](https://github.com/ebichan88/dbxray/issues/78)にまとめています。
-
-そんな中、ふと**テーブルの構造をAIが回答できたら面白いのでは**と思い、MCPサーバーを作る案をAIに提案してみたところ、思いのほか話が進みました。
-
-なので、具体的に困ったことから考えた機能というよりは、自分なりに面白そうと思った機能を提案した、というのが正直なところです。
-（結果的に、スナップショットはMCPサーバーの入力として使われることになりました。）
+もともとMCPサーバーを作る予定は無かったのですが、作っている途中でふと**テーブルの構造をAIが回答できたら面白いのでは**と思い、AIに提案してみたところ思いのほか話が進みました。
+今では、19個のツールを持つMCPサーバーになっています。
 
 ### 全体像
 
@@ -404,12 +374,11 @@ flowchart LR
 ポイントは、**MCPサーバーはDBに接続しない**ことです。
 dbxrayが出力したスナップショットのファイルを読むだけなので、AIの実行環境にDBの接続情報を置く必要がなく、テーブルの中の実データがAIに渡ることもありません。
 
-また、サイドカーYAMLで書き足した説明・論理リレーション・観点もAIから引けるようにしています。
-人が読むテーブル定義書と、AIが引く情報は同じ取得結果から出力しているので、両者が食い違うこともありません。
+また、人が読むテーブル定義書と、AIが引く情報は同じ取得結果から出力しているので、両者が食い違うこともありません。
 
-その代わり、DBを変更しても、dbxrayを実行し直してスナップショットを更新するまではAIからは見えません[^5]。
+その代わり、DBを変更しても、dbxrayを実行し直してスナップショットを更新するまではAIからは見えません[^4]。
 
-[^5]: この鮮度の問題は、前述の`--check`をCIで回して、スナップショットとDBの乖離を検知する想定です。
+[^4]: この鮮度の問題は、前述の`--check`をCIで回して、スナップショットとDBの乖離を検知する想定です。
 
 ### 設定方法
 
@@ -437,46 +406,137 @@ claude mcp add dbxray -- /opt/dbxray-linux/runtime/bin/java -jar /opt/dbxray-lin
 
 スナップショットは起動時に読み込むので、`git pull`等で更新した場合は、MCPクライアントからサーバーに再接続します。
 
-### 使えるツール
+### AIに聞けること
 
-現時点（v0.4.2）で、以下の19個のツールを用意しています。
+ここからは、サンプルのDBに対して実際にツールを呼び出した結果を交えながら、AIに何を聞けるかを紹介します。
 
-| 目的 | ツール | 内容 |
-|:---|:---|:---|
-| 全体像をつかむ | `list_schemas` | DB・スキーマと、種類ごとのオブジェクトの数 |
-| | `list_viewpoints` | 観点の一覧 |
-| | `list_table_clusters` | 関連のつながりから推測した、テーブルのまとまり |
-| 探す | `search_tables` | キーワードでテーブルを検索（論理名・説明・カラム名も対象） |
-| | `list_tables` | テーブルの一覧（関連の数付き） |
-| | `find_columns` | カラム名から、そのカラムを持つテーブルを逆引き |
-| | `find_similar_tables` | カラム名の構造が似たテーブルを探す |
-| 定義を見る | `get_table` | テーブル（ビューを含む）の定義 |
-| 関連をたどる | `get_related_tables` | 外部キー・論理リレーションでつながるテーブル |
-| | `find_join_path` | 2つのテーブルをつなぐ最短のJOIN経路 |
-| | `get_er_diagram` | ER図（Mermaid記法） |
-| 影響を調べる | `get_impact` | テーブルを変更・削除したときの影響範囲 |
-| その他 | `list_functions`・`get_function`ほか | 関数・シーケンス・ユーザー定義型・トリガーの一覧と定義 |
+#### 業務の言葉でテーブルを探す
 
-ツールのほかに、利用者が`@`でテーブルの定義を会話に添付できるリソースも用意しています。
-Claude Code（ターミナル）であれば、入力欄に`@受注明細`のように論理名・物理名を打つと候補が出てきます。
+テーブル名が英語でも、論理名・説明・カラム名から日本語で探せます。
+以下は、`search_tables`で従業員と検索した結果です。
 
-### 実際に聞いてみた
+```json:search_tables（query: 従業員）の結果（一部抜粋）
+{
+  "total": 3,
+  "tables": [
+    {
+      "name": "employee",
+      "logicalName": "従業員",
+      "matchedIn": ["logicalName", "column:employee_id", "column:employee_code", "column:employee_name", "column:manager_id"]
+    },
+    {
+      "name": "employee_history",
+      "logicalName": "従業員履歴",
+      "matchedIn": ["logicalName"]
+    },
+    {
+      "name": "department",
+      "description": "社内の組織単位を管理するマスタテーブル。\n従業員（employee）は必ずいずれか1つの部署に所属する。\n",
+      "matchedIn": ["description"]
+    }
+  ]
+}
+```
 
-実際に、AIから質問してみた結果です。
+`department`テーブルはDBにコメントが無いのですが、サイドカーYAMLで書き足した説明に従業員という言葉が入っていたので、ヒットしています。
+人が書き足した情報まで検索の対象になるので、書き足すほどAIが探しやすくなります。
 
-**「物理名にidが存在するカラムがどれだけあるか調べてほしい」**（`find_columns`を利用）
+カラム名からテーブルを逆引きすることもできます。
 
-![use_find_columns](https://github.com/user-attachments/assets/4cb1a424-ec1b-4a2f-9965-1863b39e0a21)
+![「物理名にidが存在するカラムがどれだけあるか調べてほしい」と聞いた結果](https://github.com/user-attachments/assets/4cb1a424-ec1b-4a2f-9965-1863b39e0a21)
 
-**「従業員テーブルの周辺のER図を描いて画像で見せて」**（`get_er_diagram`を利用）
+#### JOINの経路を調べる
 
-![use_get_er_diagram](https://github.com/user-attachments/assets/37c34c7e-bb26-49be-841e-96008b282298)
+監査ログの`audit_log`から、変更された従業員の部署名を出したい、という場面を考えます。
 
-**「employeeと構造が似たテーブルはある？」**（`find_similar_tables`を利用）
+`audit_log`には外部キー制約が無いのですが、サイドカーYAMLで`employee`への論理リレーションを宣言しているので、`find_join_path`で経路をたどれます。
 
-![use_find_similar_tables](https://github.com/user-attachments/assets/6847833e-de27-488e-82d5-c9ed226f8eae)
+```json:find_join_path（from: audit_log、to: department）の結果（一部抜粋）
+{
+  "paths": [
+    {
+      "tables": ["sample.audit_log", "sample.employee", "sample.department"],
+      "joins": [
+        {
+          "from": "sample.audit_log",
+          "fromColumns": ["record_id"],
+          "to": "sample.employee",
+          "toColumns": ["employee_id"],
+          "kind": "logicalRelation",
+          "cardinality": "OPTIONAL_ONE_TO_MANY"
+        },
+        {
+          "from": "sample.employee",
+          "fromColumns": ["department_id"],
+          "to": "sample.department",
+          "toColumns": ["department_id"],
+          "kind": "foreignKey",
+          "cardinality": "ONE_TO_MANY"
+        }
+      ]
+    }
+  ]
+}
+```
 
-個人的に気に入っているのが、最後の`find_similar_tables`です。
+どのカラム同士でJOINするかに加えて、外部キーか論理リレーションかと、多重度も返します。
+この結果をそのままSQLにすると、以下のようになります。
+
+```sql:返ってきた経路から組み立てたSQLの例
+SELECT a.changed_at, a.action, e.employee_name, d.department_name
+FROM sample.audit_log a
+-- record_idはNULLを許容する0..1対多の関連なので、外部結合にしておく
+LEFT JOIN sample.employee e ON e.employee_id = a.record_id
+LEFT JOIN sample.department d ON d.department_id = e.department_id;
+```
+
+外部キー制約の無いDBだと、AIはカラム名から関連を推測してJOINを書くことになりますが、人が宣言した関連をもとに答えられるのがポイントです。
+
+#### 変更の影響範囲を調べる
+
+`get_impact`を使うと、テーブルを変更・削除したときの影響範囲を1回で調べられます。
+`employee`テーブルで調べた結果をまとめると、以下のとおりです。
+
+| 種類 | 影響を受けるもの |
+|:---|:---|
+| 外部キーで参照しているテーブル | `attendance`、`employee`の自己参照、`employee_history`、`employee_profile`、`project_assignment` |
+| 論理リレーションで参照しているテーブル | `audit_log` |
+| 間接的に参照しているテーブル | `attendance_note`。`attendance`を経由する |
+| 参照しているビュー | `employee_directory_view`と、それを参照する`attendance_monthly_view` |
+| トリガー | `trg_employee_audit`、`trg_employee_set_updated_at` |
+| 使っている関数・プロシージャ | `raise_salary`、`close_project`、`department_headcount`など5つ |
+
+関数・プロシージャについては、このテーブルを登録・参照・更新・削除のどれで使っているかを、`operations`にC・R・U・Dで返します。
+ビューのトリガーから呼ばれて`employee`に登録する関数のように、トリガー経由で使われていることも`calledByTriggers`で分かります。
+
+```json:get_impact（table: employee）の結果のうち関数の部分（一部抜粋）
+"usages": [
+  {
+    "function": "sample.raise_salary",
+    "kind": "PROCEDURE",
+    "overloads": ["IN p_employee_id integer, IN p_amount numeric"],
+    "operations": "U"
+  },
+  {
+    "function": "sample.employee_directory_insert",
+    "kind": "FUNCTION",
+    "overloads": ["()"],
+    "operations": "C",
+    "calledByTriggers": ["sample.employee_directory_view.trg_employee_directory_insert"]
+  }
+]
+```
+
+この関数の部分は、関数の定義本体から利用しているテーブルを機械的に抜き出したもので、`--preview`を付けて実行したときだけ動くプレビューの機能です[^5]。
+
+[^5]: 動的SQLの中や、呼び出している別の関数の中の参照は含まれません。そういった取りこぼしの可能性がある関数は、結果の中で別に示すようにしています。
+
+#### 構造の似たテーブルを探す
+
+個人的に気に入っているのが、構造の似たテーブルを探す`find_similar_tables`です。
+
+![「employeeと構造が似たテーブルはある？」と聞いた結果](https://github.com/user-attachments/assets/6847833e-de27-488e-82d5-c9ed226f8eae)
+
 ただ単にスナップショットのデータを返すのではなく、工夫しているところがいいなと思っています。
 
 このとき、MCPサーバーからAIには以下のJSONが返っています。
@@ -508,8 +568,16 @@ Claude Code（ターミナル）であれば、入力欄に`@受注明細`のよ
 }
 ```
 
-`employee`の11カラムをすべて持ったうえで、`history_id`・`valid_from`・`valid_to`が追加されている（`superset`）テーブルとして、履歴テーブルの`employee_history`が見つかっています。
-履歴テーブルであることに加えて、`employee_name`の桁数だけが本体とずれている（`size`）ことまで分かります。
+`employee`の11カラムをすべて持ったうえで、`history_id`・`valid_from`・`valid_to`が追加されているテーブルとして、履歴テーブルの`employee_history`が見つかっています。
+さらに、`employee_name`の桁数だけが本体とずれていることまで分かります。
+
+新しいテーブルを作る前に同じ目的のテーブルがすでに無いかを確かめたり、履歴・バックアップ用のテーブルを見つけたりする用途を想定しています。
+
+#### ER図を描かせる
+
+テーブルの周辺や観点のER図を、定義書と同じ表記のMermaidで返します。
+
+![「従業員テーブルの周辺のER図を描いて画像で見せて」と聞いた結果](https://github.com/user-attachments/assets/37c34c7e-bb26-49be-841e-96008b282298)
 
 ### 構造の似たテーブルを探す仕組み
 
@@ -522,7 +590,7 @@ Claude Code（ターミナル）であれば、入力欄に`@受注明細`のよ
 w(c) = \ln \frac{N + 1}{\text{そのカラム名を持つテーブルの数}}
 ```
 
-（$N$ はDBのテーブルの数）
+$N$ はDBのテーブルの数です。
 
 重み $w(c)$ は、そのカラム名を持つテーブルが多いほど小さくなります。
 `id`や`created_at`のように多くのテーブルが持つ汎用的なカラムを共有しているだけで、似ていると判定しないためです。
@@ -535,8 +603,10 @@ w(c) = \ln \frac{N + 1}{\text{そのカラム名を持つテーブルの数}}
 
 結果には、類似度に加えて以下のような情報も付けています。
 
-- `kind`: カラムが同じ（`identical`）、相手が基準の全カラムを持つ（`superset`）、相手が基準の一部だけを持つ（`subset`）、それ以外（`overlap`）
-- `typeMismatches`: 同名で型が違うカラム（型そのものが違うのか、桁数だけが違うのか）
+- `kind`: 相手との関係の種類
+  - `identical`はカラムが同じ、`superset`は相手が基準の全カラムを持つ、`subset`は相手が基準の一部だけを持つ、`overlap`はそれ以外
+- `typeMismatches`: 同名で型が違うカラム
+  - 型そのものが違うのか、桁数だけが違うのかも区別する
 - `relatedToBase`: 基準と外部キーで直接つながるテーブルかどうか
 
 外部キーでつながるテーブルを除外せずに印を付けているのは、履歴テーブルや拡張テーブルは基準のテーブルを参照していることが多いためです。
@@ -546,73 +616,47 @@ w(c) = \ln \frac{N + 1}{\text{そのカラム名を持つテーブルの数}}
 
 [^6]: DBのテーブル数が少ない場合は、汎用的なカラムの重みが十分に下がらない、という限界もあります。
 
-### AIに使ってもらうための設計
+### ツールの一覧
 
-このあたりの設計は、AIと相談しながら（というより、かなりの部分をAIに考えてもらいながら）決めたものですが、MCPサーバーを作るときの参考になりそうなものを紹介します。
+v0.4.2の時点で、以下の19個のツールを用意しています。
 
-**ツールの使い分けは、接続時の`instructions`で伝える**
+| 目的 | ツール | 内容 |
+|:---|:---|:---|
+| 全体像をつかむ | `list_schemas` | DB・スキーマと、種類ごとのオブジェクトの数 |
+| | `list_viewpoints` | 観点の一覧 |
+| | `list_table_clusters` | 関連のつながりから推測した、テーブルのまとまり |
+| 探す | `search_tables` | キーワードでテーブルを検索する。論理名・説明・カラム名も対象 |
+| | `list_tables` | テーブルの一覧と、それぞれの関連の数 |
+| | `find_columns` | カラム名から、そのカラムを持つテーブルを逆引きする |
+| | `find_similar_tables` | カラム名の構造が似たテーブルを探す |
+| 定義を見る | `get_table` | テーブルとビューの定義 |
+| 関連をたどる | `get_related_tables` | 外部キー・論理リレーションでつながるテーブル |
+| | `find_join_path` | 2つのテーブルをつなぐ最短のJOIN経路 |
+| | `get_er_diagram` | Mermaid記法のER図 |
+| 影響を調べる | `get_impact` | テーブルを変更・削除したときの影響範囲 |
+| その他 | `list_functions`・`get_function`ほか | 関数・シーケンス・ユーザー定義型・トリガーの一覧と定義 |
 
-MCPには、初期化時にサーバーからAIへ使い方の説明（`instructions`）を渡す仕組みがあります。
-ツールの数が多いので、全体像をつかむ → 探す → 定義を見る、の順に呼ぶよう、使い分けをここで伝えています。
+ツールのほかに、利用者が`@`でテーブルの定義を会話に添付できるリソースも用意しています。
+ターミナル版のClaude Codeであれば、入力欄に`@受注明細`のように論理名・物理名を打つと候補が出てきます。
 
-```java:McpServerMain.java（一部抜粋）
-  private static final String INSTRUCTIONS =
-      "DBのテーブル定義（dbxrayが出力したスキーマのスナップショット）を調べるサーバー。"
-          + "全体像はlist_schemas、テーブルはキーワードならsearch_tables・一覧ならlist_tablesで探し"
-          + "（どこから読むか迷う場合は、list_tablesのorderByで関連の多い中心のテーブルから並べる）、"
-          + "get_tableで定義を取得する（必要な項目だけをsections・columnsで指定すると結果が小さくなる）。"
-          // 以下略
-```
+### MCP Java SDKで作るときの注意点
 
-**見つからないときは、候補付きのエラーを返す**
-
-テーブル名が見つからない場合や、同名のテーブルが複数のスキーマにある場合は、候補を示すエラーを返しています。
-AIはエラーの内容を見て、引数を直して呼び直してくれます。
-
-**結果を小さく保つ**
-
-AIのコンテキストを圧迫しないよう、一覧を返すツールは`limit`・`offset`で範囲を指定し、続きがあれば`nextOffset`を返すようにしています。
-関数の定義本体のように大きくなりがちなものは、既定では返さず、引数で指定されたときだけ返します。
-
-**AIが読むのは、ドキュメントではなくツールの説明文**
-
-注意点をドキュメントにだけ書いても、AIはドキュメントを読みません。
-たとえば`get_impact`の結果のうち、関数の部分は機械的に求めた参考値なのですが、その旨はドキュメントに加えて、ツールの説明文と結果のJSON（`"preview": true`）にも書いています。
-
-### stdioで動かすときの注意点
-
-dbxrayのMCPサーバーは、MCPクライアントから子プロセスとして起動され、標準入出力（stdio）で通信します。
-その際に気をつけたことが2つあります。
+最後に、JavaでMCPサーバーを作るときに気をつけたことを2つ紹介します。
 
 **標準出力に書き込まない**
 
-stdioの場合、標準出力はMCPのメッセージ専用です。
-うっかり`System.out.println`でログを出すと、メッセージに混ざって通信が壊れてしまいます。
+dbxrayのMCPサーバーは、MCPクライアントから子プロセスとして起動され、標準入出力で通信します。
+この場合、標準出力はMCPのメッセージ専用なので、うっかり`System.out.println`でログを出すとメッセージに混ざって通信が壊れてしまいます。
 
 そのため、利用者向けの表示はすべて標準エラーに出し、標準出力へ書き込んでいないことをArchUnitのテストで検査しています。
 
-```java:ArchitectureTest.java（一部抜粋）
-  @Test
-  @DisplayName("標準出力へ書き込まない（標準出力はMCPのプロトコルが使う）")
-  void testNoClassWritesToStandardOutput() {
-    noClasses()
-        .should()
-        .accessField(System.class, "out")
-        .orShould()
-        .accessField(FileDescriptor.class, "out")
-        .orShould()
-        .callMethod(System.class, "setOut", PrintStream.class)
-        .because("標準出力へ書き込むとMCPのメッセージに混ざり、クライアントとの通信が壊れるため")
-        .check(MAIN_CLASSES);
-  }
-```
-
 **ツールの並行呼び出しで応答が止まる**
 
-MCPのJava SDK（`mcp-core` 2.0.1）は、既定ではツールの呼び出しを複数のスレッドで並行に実行します。
-ところが、応答の書き込みが同時に起きると応答が止まってしまう不具合があり（[java-sdk#686](https://github.com/modelcontextprotocol/java-sdk/issues/686)）、MCPクライアントは独立したツールを並行に呼ぶので、普通に使っていても起こります。
+MCPのJava SDKの`mcp-core` 2.0.1は、既定ではツールの呼び出しを複数のスレッドで並行に実行します。
+ところが、応答の書き込みが同時に起きると応答が止まってしまう不具合があります。
+MCPクライアントは独立したツールを並行に呼ぶので、普通に使っていても起こります。
 
-そのため、`immediateExecution(true)`で、標準入力を読むスレッドで1つずつ実行させて回避しています。
+この不具合は[java-sdk#686](https://github.com/modelcontextprotocol/java-sdk/issues/686)で報告されていて、dbxrayでは`immediateExecution(true)`を指定し、標準入力を読むスレッドで1つずつ実行させて回避しています。
 
 ```java:McpServerMain.java（一部抜粋）
     McpServer.sync(new StdioServerTransportProvider(jsonMapper))
@@ -631,18 +675,9 @@ MCPのJava SDK（`mcp-core` 2.0.1）は、既定ではツールの呼び出し�
 
 [^7]: 修正はSDKのmainブランチには入っていますが、執筆時点ではまだリリースされていません。修正が入った版がリリースされたら、`immediateExecution`を残すかを見直す想定です。
 
-## 開発の進め方について
+## 開発で苦労したこと
 
-### Claude Codeでの進め方
-
-冒頭でも触れたとおり、今回の改修のほとんどはClaude Codeに実装してもらいました。
-
-詳しくは触れませんが、大きめの機能は、Issueに詳細仕様・テスト計画を書く → 計画をAIに敵対的にレビューさせる → 実装PR → PRレビュー、という流れで進めています（例えば`get_impact`は[こちらのIssue](https://github.com/ebichan88/dbxray/issues/158)）。
-Claude Codeでの開発プロセスについては、[Claude Codeで個人開発を1ヶ月やって、たどり着いた開発プロセスの話](https://qiita.com/ebichan_88/items/eead0724e9b5eb0d0120)でも紹介しているので、よろしければご覧ください。
-
-### 苦労したこと
-
-一番苦労したのは、**AIが作ったソースの理解**です。
+今回の改修のほとんどはClaude Codeに実装してもらったのですが、一番苦労したのは**AIが作ったソースの理解**です。
 
 もともと自分が1から作っていたツールなので、ソースには詳しかったはずですが、いつの間にか乗っ取られた気分でした・・。
 
@@ -651,7 +686,7 @@ Claude Codeでの開発プロセスについては、[Claude Codeで個人開発
 
 読解ガイドは、事前知識・処理の流れ・ソースごとの役割と繋がりを図でまとめたもので、GitHub Pagesで公開しています。
 
-- [cli（テーブル定義書等の出力）の読解ガイド](https://ebichan88.github.io/dbxray/cli-guide.html)
+- [テーブル定義書等を出力するcliの読解ガイド](https://ebichan88.github.io/dbxray/cli-guide.html)
 - [MCPサーバーの読解ガイド](https://ebichan88.github.io/dbxray/mcp-server-guide.html)
 
 ## おわりに
@@ -659,17 +694,13 @@ Claude Codeでの開発プロセスについては、[Claude Codeで個人開発
 うれしかったことといえば、ER図やMCPサーバーの機能が付いたことです。
 どちらも、自分が実際に使ってみたいと思った機能なので。
 
-また、機能強化を進めながら、自分が作りたかったツールのコンセプト（**現行システムの読み解き**）が明確に言語化された気がします。
-
-とはいえ、作り込んでからは実務ではまだ全然使えていないので、これから個人的に試していこうと思います。
-物足りないところがあるかは、使ってみてから分かるのかなと思っています。
+また、機能強化を進めながら、自分が作りたかったツールのコンセプトが**現行システムの読み解き**だと、明確に言語化された気がします。
 
 巨大なシステムで、テーブル定義書などのドキュメントが整備されていない環境で開発している方には、ぜひお勧めしたいです。
 少しでも参考になれば幸いです。
 
 ## 参考サイト
 
-- [dbxray（GitHub）](https://github.com/ebichan88/dbxray)
-- [tbls（GitHub）](https://github.com/k1LoW/tbls)
+- [dbxray](https://github.com/ebichan88/dbxray)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
-- [MCP Java SDK（GitHub）](https://github.com/modelcontextprotocol/java-sdk)
+- [MCP Java SDK](https://github.com/modelcontextprotocol/java-sdk)
