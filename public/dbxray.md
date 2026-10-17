@@ -57,14 +57,17 @@ dbxrayは、[ebichan88/dbxray](https://github.com/ebichan88/dbxray)のGitHubリ�
 
 - [dbxrayとは](#dbxrayとは)
 - [使い方](#使い方)
-  - [入手と実行](#入手と実行)
-  - [サイドカーYAMLでDBに無い情報を書き足す](#サイドカーyamlでdbに無い情報を書き足す)
-  - [ドキュメントの更新漏れを検知する](#ドキュメントの更新漏れを検知する)
-- [ER図の出力について](#er図の出力について)
-  - [出力例](#出力例)
-  - [出力されるER図の種類](#出力されるer図の種類)
-  - [大きなスキーマのER図を分割する](#大きなスキーマのer図を分割する)
+- [出力されるドキュメント](#出力されるドキュメント)
+  - [README](#readme)
+  - [テーブル一覧](#テーブル一覧)
+  - [テーブル定義書](#テーブル定義書)
+  - [ER図](#er図)
   - [多重度の判定](#多重度の判定)
+- [整備されていないDBで使うための機能](#整備されていないdbで使うための機能)
+  - [外部キー制約やコメントの代わりに情報を書き足す](#外部キー制約やコメントの代わりに情報を書き足す)
+  - [大きなスキーマのER図を分割する](#大きなスキーマのer図を分割する)
+  - [業務の単位でテーブルをまとめる](#業務の単位でテーブルをまとめる)
+  - [ドキュメントの更新漏れを検知する](#ドキュメントの更新漏れを検知する)
 - [MCPサーバーでAIにテーブル構造を答えさせる](#mcpサーバーでaiにテーブル構造を答えさせる)
   - [全体像](#全体像)
   - [設定方法](#設定方法)
@@ -84,31 +87,15 @@ dbxrayは、DBに接続し、テーブル一覧・テーブル定義書・ER図�
 
 | 出力物 | 内容 |
 |:---|:---|
+| README | 出力した全ドキュメントへの索引と、スキーマごとのオブジェクト数の集計 |
 | テーブル一覧 | 対象テーブルの一覧と、各テーブル定義書へのリンク |
 | テーブル定義書 | カラム・インデックス・制約・外部キー・被参照・トリガーの情報など |
 | ER図 | 外部キーの関係を表すMermaid記法の図。テーブル単位とスキーマ単位で出力する |
 | 観点ごとのページ | 人事管理などの業務の単位でまとめた、テーブルのER図と一覧 |
 | 関数・シーケンス・ユーザー定義型の一覧と個別ページ | 関数・プロシージャの定義本体や、ENUMの値など |
-| README | 出力した全ドキュメントへの索引と、スキーマごとのオブジェクト数の集計 |
 | スナップショット | 上記と同じ情報を、機械可読なJSON Lines形式にしたもの。MCPサーバーの入力になる |
 
-テーブル定義書には、論理名・物理名・データ型・桁数などを表形式で出力します。
-次の表は、サンプルDBの`employee`テーブルのカラム情報の先頭6行です。
-
-| No. | 論理名 | 物理名 | データ型 | 桁数/精度 | PK | Not Null | デフォルト | 備考 |
-|:---|:---|:---|:---|:---|:---|:---|:---|:---|
-|1|従業員ID|employee_id|integer||○|○|nextval('sample.employee_employee_id_seq'::regclass)||
-|2|従業員コード|employee_code|character varying(10)|10||○|||
-|3|従業員名|employee_name|character varying(50)|50||○|||
-|4|所属部署ID|department_id|integer|||○|||
-|5|上長の従業員ID|manager_id|integer||||||
-|6|駐車場ID|parking_spot_id|integer||||||
-
-出力サンプルの全体は、[サンプルDBのREADME](https://github.com/ebichan88/dbxray/blob/main/docs/sample/postgres/output/testdb/README.md)から参照できます。
-
 ## 使い方
-
-### 入手と実行
 
 [Releases](https://github.com/ebichan88/dbxray/releases/latest)から、OSに合ったzipをダウンロードして展開します。
 
@@ -154,103 +141,82 @@ output
          └─functions.jsonl
 ```
 
-### サイドカーYAMLでDBに無い情報を書き足す
+## 出力されるドキュメント
 
-既存のDBでは、外部キー制約が設定されていない、論理名となるコメントが記載されていないなど、DBのメタ情報だけでは分からない情報も多いと思います。
+本章では、サンプルDBから出力したドキュメントを紹介します。
+出力したMarkdownはGitHub等でそのまま閲覧でき、次のキャプチャもGitHub上の表示です。
 
-そこで、DBに無い情報を**サイドカーYAML**に記述し、出力にマージできるようにしました。
-記述できる情報は次の3種類です。
+出力サンプルの全体は、[サンプルDBのREADME](https://github.com/ebichan88/dbxray/blob/main/docs/sample/postgres/output/testdb/README.md)から参照できます。
 
-- `tables`: テーブルの説明・備考と、カラムの備考
-- `relations`: 外部キー制約の無いテーブル間の関連である、論理リレーション
-- `viewpoints`: 業務の単位でテーブルをまとめる観点
+### README
 
-```yaml:annotations.sample.yml（サンプルから抜粋）
-tables:
-  sample.audit_log:
-    description: employeeテーブルの変更を記録する監査ログ。トリガー経由でのみ書き込まれる。
+DBごとに、出力した全ドキュメントへの索引となるREADMEを出力します。
+スキーマごとのオブジェクトの数や、論理名が記述されているテーブル・カラムの数などの集計も載せています。
 
-relations:
-  - table: sample.audit_log            # 参照元（子）
-    columns: [record_id]
-    parentTable: sample.employee       # 参照先（親）
-    parentColumns: [employee_id]
-    cardinality: 0..1対多              # DBに制約が無いので、多重度はここで明示する
+![READMEの出力例](TODO:キャプチャ1)
 
-viewpoints:
-  - id: personnel
-    name: 人事管理
-    tables:
-      - sample.employee*
-      - "!sample.employee_directory_view"
-      - sample.department
-      - sample.parking_spot
-```
+### テーブル一覧
 
-ER図では、論理リレーションを物理的な外部キーと区別するため、**破線**で描画します。
+対象テーブルの一覧と、各テーブル定義書へのリンクを出力します。
 
-```text:論理リレーションの描画（スキーマ別ER図から抜粋）
-sample_employee |o..o{ sample_audit_log : "record_id"
-```
+![テーブル一覧の出力例](TODO:キャプチャ2)
 
-観点を宣言すると、観点ごとのER図と所属テーブルの一覧をまとめたページを出力します。
-スキーマ単位のER図は機械的な区切りのため、業務の単位でテーブルを把握したい場合に利用します。
+### テーブル定義書
 
-サイドカーYAMLで記述した説明・論理リレーション・観点は、後述するMCPサーバー経由でAIからも参照できます。
+テーブルごとに、テーブル情報・カラム情報・インデックス・制約・外部キー・被参照・トリガーなどの情報を出力します。
+次のキャプチャは、`employee`テーブルの定義書です。
 
-### ドキュメントの更新漏れを検知する
+![テーブル定義書の出力例](TODO:キャプチャ3)
 
-`--check`を付けて実行すると、コミット済みのスナップショットと、現在のDBから生成したスナップショットを比較します。
-マイグレーション後のドキュメントの再出力漏れを、CIで検知するための機能です。
+被参照情報には、このテーブルを参照しているテーブルを一覧にしています。
+外部キーは参照する側のテーブルにしか定義されないため、参照される側から関連を辿れるようにしています。
 
-内容に差分があるオブジェクトは、次のようにunified diff形式で表示します。
+![テーブル定義書の外部キー情報・被参照情報](TODO:キャプチャ4)
 
-```text:--checkの出力例
-Content differs:
- - table sample.employee
-
---- committed/testdb/sample/tables.jsonl (table sample.employee)
-+++ generated/testdb/sample/tables.jsonl (table sample.employee)
-@@ -8,6 +8,7 @@
-   "columns": [
-     {"name":"employee_id","type":"integer","primaryKey":true,"notNull":true}
-     {"name":"name","type":"character varying(100)","primaryKey":false,"notNull":true}
-+    {"name":"nickname","type":"text","primaryKey":false,"notNull":false}
-   ]
-   "indexes": [
-```
-
-差分がある場合はCIのジョブを失敗させられるため、ドキュメントの更新漏れに気づけます。
-
-## ER図の出力について
-
-本章では、今回の改修のきっかけでもあるER図の出力について紹介します。
-
-### 出力例
+### ER図
 
 ER図は、GitHub等でそのまま図として表示できるMermaid記法で出力します。
-次の図は、サンプルDBの観点「人事管理」のページに出力したER図です。
+次の図は、`employee`テーブルの定義書に出力したER図です。
 
 ```mermaid
 erDiagram
-    sample_department["department"]
     sample_employee["employee（従業員）"]
+    sample_department["department"]
+    sample_parking_spot["parking_spot"]
+    sample_attendance["attendance（勤怠（月次パーティション））"]
     sample_employee_history["employee_history（従業員履歴）"]
     sample_employee_profile["employee_profile"]
-    sample_parking_spot["parking_spot"]
+    sample_project_assignment["project_assignment"]
+    sample_audit_log["audit_log"]
     sample_department ||--o{ sample_employee : "employee_department_id_fkey"
     sample_employee |o--o{ sample_employee : "employee_manager_id_fkey"
     sample_parking_spot |o--o| sample_employee : "employee_parking_spot_id_fkey"
+    sample_employee ||--o{ sample_attendance : "attendance_employee_id_fkey"
     sample_employee ||--o{ sample_employee_history : "employee_history_employee_id_fkey"
     sample_employee ||--o| sample_employee_profile : "employee_profile_employee_id_fkey"
-    sample_department {
-        integer department_id PK
-    }
+    sample_employee ||--o{ sample_project_assignment : "project_assignment_employee_id_fkey"
+    sample_employee |o..o{ sample_audit_log : "record_id"
     sample_employee {
         integer employee_id PK "従業員ID"
+        character_varying employee_code "従業員コード"
+        character_varying employee_name "従業員名"
         integer department_id FK "所属部署ID"
         integer manager_id FK "上長の従業員ID"
         integer parking_spot_id FK "駐車場ID"
+        sample_employee_status_enum status "在籍状況"
+        numeric salary "給与"
+        jsonb profile "プロフィール（JSON）"
+        date hired_date "入社日"
+        timestamp_without_time_zone updated_at "更新日時"
+    }
+    sample_department {
+        integer department_id PK
+    }
+    sample_parking_spot {
+        integer parking_spot_id PK
+    }
+    sample_attendance {
+        integer employee_id FK
     }
     sample_employee_history {
         integer employee_id FK
@@ -258,16 +224,16 @@ erDiagram
     sample_employee_profile {
         integer employee_id PK, FK
     }
-    sample_parking_spot {
-        integer parking_spot_id PK
+    sample_project_assignment {
+        integer employee_id PK, FK
+    }
+    sample_audit_log {
+        integer record_id FK
     }
 ```
 
-テーブルの箱には、`テーブル名（論理テーブル名）`の見出しと、図中の関連をつなぐカラムのみを表示します。
-全カラムを表示すると、箱が大きくなりすぎるためです。
-ただし、テーブル定義書内のER図に限り、自テーブルの全カラムを表示します。
-
-### 出力されるER図の種類
+自テーブルは全カラムを、周辺のテーブルは図中の関連をつなぐカラムのみを表示します。
+周辺のテーブルまで全カラムを表示すると、箱が大きくなりすぎるためです。
 
 ER図は、次の粒度で出力します。
 
@@ -276,28 +242,7 @@ ER図は、次の粒度で出力します。
 | 各テーブル定義書の「ER図」セクション | 自テーブルと、直接の参照先・参照元のテーブル。描画する段数は1〜3で変更できる |
 | スキーマ別ER図 | スキーマ全体のER図 |
 | グループ別ER図 | スキーマが大きい場合に、つながったテーブルのまとまりごとに分割したER図 |
-| 観点ごとのページ | サイドカーYAMLで宣言した観点の、所属テーブル同士のER図 |
-
-### 大きなスキーマのER図を分割する
-
-前回の記事では、テーブル数が多いとGitHub上でMarkdownがパースされなくなるため、テーブル一覧のファイルを分割していました。
-ER図も同様に、大きなスキーマを1枚に描くと線が入り乱れて読みにくくなるため、分割して出力します。
-
-具体的には、1枚に描くテーブル数に上限を設け、上限を超えた場合は次のように出し分けます。
-
-```mermaid
-flowchart TD
-    A[スキーマ別ER図] --> B{テーブル数が上限以内？}
-    B -->|はい| C[1枚に描画する]
-    B -->|いいえ| D[つながったテーブルのまとまり<br>＝連結成分を求める]
-    D --> E[上限に収まる範囲で<br>小さなまとまりを同じグループにまとめる]
-    E --> F{グループが上限以内？}
-    F -->|はい| G[グループ別ER図として描画する]
-    F -->|いいえ| H[描画を省略して<br>外部キーの一覧表を掲載する]
-```
-
-小さなまとまりを同じグループにまとめるのは、1テーブルだけのグループが大量に生成されるのを避けるためです。
-まとめたテーブル同士は線でつながらないため、関連を誤読するおそれはありません。
+| 観点ごとのページ | 後述する観点の、所属テーブル同士のER図 |
 
 ### 多重度の判定
 
@@ -335,6 +280,119 @@ ALTER TABLE child ADD UNIQUE (a);
 -- 削除されていない行の中での一意性しか保証しないため、多重度の判定には使わない
 CREATE UNIQUE INDEX ON child (parent_id) WHERE deleted_at IS NULL;
 ```
+
+## 整備されていないDBで使うための機能
+
+ここまでの出力例では、外部キー制約やコメントが設定されているテーブルを中心に紹介しました。
+ですが、実際の現場のDBでは、外部キー制約やコメントが整備されていなかったり、テーブル数が多すぎてER図を一度に出力しても読めなかったりすることも多いと思います。
+
+dbxrayには、このような環境でも使えるようにするための機能を用意しています。
+
+### 外部キー制約やコメントの代わりに情報を書き足す
+
+サンプルDBでも、`department`テーブルにはコメントを、`audit_log`テーブルには外部キー制約を付けていません。
+
+このようなDBに無い情報は、**サイドカーYAML**に記述して出力にマージできます。
+
+```yaml:annotations.sample.yml（サンプルから抜粋）
+tables:
+  sample.department:
+    description: |
+      社内の組織単位を管理するマスタテーブル。
+      従業員（employee）は必ずいずれか1つの部署に所属する。
+    remarks: 組織改編時はdepartment_codeを変更せず、department_nameのみ更新すること
+    columns:
+      department_code: 部署コード。他システム連携時のキーとして使用
+      department_name: 部署名称
+
+relations:
+  - table: sample.audit_log            # 参照元（子）
+    columns: [record_id]
+    parentTable: sample.employee       # 参照先（親）
+    parentColumns: [employee_id]
+    cardinality: 0..1対多              # DBに制約が無いので、多重度はここで明示する
+```
+
+`tables`に記述した説明・備考は、テーブル定義書のテーブル説明や備考の欄に反映されます。
+
+![サイドカーYAMLの内容を反映したdepartmentのテーブル定義書](TODO:キャプチャ5)
+
+`relations`に記述した関連は、論理リレーションとして扱います。
+テーブル定義書では外部キー情報とは別のセクションに載せ、ER図では物理的な外部キーと区別するため**破線**で描画します。
+前述の`employee`のER図で、`audit_log`との線が破線になっているのが論理リレーションです。
+
+![audit_logのテーブル定義書の論理リレーション情報](TODO:キャプチャ6)
+
+どこまで情報を補えたかは、READMEの集計で確認できます。
+
+### 大きなスキーマのER図を分割する
+
+テーブル数が多いスキーマでは、全体を1枚のER図に描くと線が入り乱れて読めなくなります。
+そこで、1枚に描くテーブル数に上限を設け、上限を超えた場合は次のように出し分けます。
+
+```mermaid
+flowchart TD
+    A[スキーマ別ER図] --> B{テーブル数が上限以内？}
+    B -->|はい| C[1枚に描画する]
+    B -->|いいえ| D[つながったテーブルのまとまり<br>＝連結成分を求める]
+    D --> E[上限に収まる範囲で<br>小さなまとまりを同じグループにまとめる]
+    E --> F{グループが上限以内？}
+    F -->|はい| G[グループ別ER図として描画する]
+    F -->|いいえ| H[描画を省略して<br>外部キーの一覧表を掲載する]
+```
+
+小さなまとまりを同じグループにまとめるのは、1テーブルだけのグループが大量に生成されるのを避けるためです。
+まとめたテーブル同士は線でつながらないため、関連を誤読するおそれはありません。
+
+### 業務の単位でテーブルをまとめる
+
+スキーマ単位やつながり単位のER図は機械的な区切りのため、業務の単位でテーブルを把握したい場合には向きません。
+
+そこで、人事管理・受注管理のような業務の単位でテーブルをまとめる**観点**を、サイドカーYAMLで宣言できるようにしています。
+
+```yaml:annotations.sample.yml（サンプルから抜粋）
+viewpoints:
+  - id: personnel
+    name: 人事管理
+    description: |
+      従業員と、その所属・付帯情報を扱うテーブル群。
+      プロジェクトへのアサインは「プロジェクト管理」の観点を参照。
+    tables:
+      - sample.employee*
+      - "!sample.employee_directory_view"
+      - sample.department
+      - sample.parking_spot
+```
+
+観点を宣言すると、観点ごとにER図と所属テーブルの一覧をまとめたページを出力します。
+
+![観点「人事管理」のページ](TODO:キャプチャ7)
+
+### ドキュメントの更新漏れを検知する
+
+ドキュメントを出力しても、DBの変更に追従できなければすぐに古くなってしまいます。
+
+`--check`を付けて実行すると、コミット済みのスナップショットと、現在のDBから生成したスナップショットを比較します。
+マイグレーション後のドキュメントの再出力漏れを、CIで検知するための機能です。
+
+内容に差分があるオブジェクトは、次のようにunified diff形式で表示します。
+
+```text:--checkの出力例
+Content differs:
+ - table sample.employee
+
+--- committed/testdb/sample/tables.jsonl (table sample.employee)
++++ generated/testdb/sample/tables.jsonl (table sample.employee)
+@@ -8,6 +8,7 @@
+   "columns": [
+     {"name":"employee_id","type":"integer","primaryKey":true,"notNull":true}
+     {"name":"name","type":"character varying(100)","primaryKey":false,"notNull":true}
++    {"name":"nickname","type":"text","primaryKey":false,"notNull":false}
+   ]
+   "indexes": [
+```
+
+差分がある場合はCIのジョブを失敗させられるため、ドキュメントの更新漏れに気づけます。
 
 ## MCPサーバーでAIにテーブル構造を答えさせる
 
