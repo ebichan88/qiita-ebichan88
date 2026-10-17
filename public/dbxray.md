@@ -698,6 +698,19 @@ v0.4.2時点で、次の19個のツールを提供しています。
 - [テーブル定義書等を出力するcliの読解ガイド](https://ebichan88.github.io/dbxray/cli-guide.html)
 - [MCPサーバーの読解ガイド](https://ebichan88.github.io/dbxray/mcp-server-guide.html)
 
+また、読解ガイド以外にも、AIが実装したコードの品質を保つために次の仕組みを導入しています。
+
+- Spotlessによるコードフォーマットの検査
+- JaCoCoによるカバレッジの最低基準の検査
+- ArchUnitによるレイヤー構成・コーディング規約の検査
+- SpotBugs・CodeQLによる静的解析
+- Docker上のPostgreSQL・Oracleに対する結合テストと、出力全体のベースラインとの比較
+- MCPサーバーのツール仕様と実装の一致を確かめる契約テスト
+- DB由来の文字列によるパストラバーサル・HTML注入を想定したテスト
+- AIエージェント向けのルールをまとめたAGENTS.md・コーディングガイドライン
+
+各仕組みの詳細は、リポジトリの[CONTRIBUTING.md](https://github.com/ebichan88/dbxray/blob/main/CONTRIBUTING.md)と[コーディングガイドライン](https://github.com/ebichan88/dbxray/blob/main/docs/development/coding-guidelines.md)をご覧ください。
+
 ## おわりに
 
 今回の改修で特にうれしかったのは、ER図とMCPサーバーの機能を追加できたことです。
