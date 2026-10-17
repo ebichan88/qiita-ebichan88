@@ -730,4 +730,3 @@ v0.4.2時点で、次の19個のツールを提供しています。
 ## 参考サイト
 
 - [dbxray](https://github.com/ebichan88/dbxray)
-- [Model Context Protocol](https://modelcontextprotocol.io/)
