@@ -28,15 +28,15 @@ agreed_posting_campaign_term: false
 
 [^1]: 旧名はテーブル定義書に特化した名前だったため、より汎用的な名前にしたいと考えていました。当初はGitLensにならって「dblens」とする予定でしたが、同名のリポジトリが既に存在しているようだったため、重複しない名前にしました。
 
-MCPは、AIが外部のツールやデータを使うための標準規格です[^2]。
-例えば、dbxrayのMCPサーバーを登録したClaude Codeには、次の質問ができます。
+DBに接続してテーブル定義書を出力するだけでなく、出力したデータをもとにAIがテーブル構造を把握できるよう、MCPサーバー[^2]も用意しました。
+例えば、MCPサーバーを登録したClaude Codeには、次の質問ができます。
 
 - **従業員まわりのテーブルを探して**
 - **監査ログから部署名を出したいけど、どうJOINすればいい？**
 - **employeeテーブルを変更したら、どこに影響する？**
 - **employeeと構造が似たテーブルはある？**
 
-[^2]: MCP（Model Context Protocol）の詳細は、[公式サイト](https://modelcontextprotocol.io/)をご覧ください。
+[^2]: MCP（Model Context Protocol）は、AIが外部のツールやデータを使うための標準規格です。詳細は[公式サイト](https://modelcontextprotocol.io/)をご覧ください。
 
 ## 想定読者
 
