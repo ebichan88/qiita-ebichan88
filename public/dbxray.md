@@ -1,20 +1,3 @@
----
-title: テーブル定義書・ER図を自動生成して、AIにテーブル構造を答えさせるツール「dbxray」を作ってみた
-tags:
-  - Java
-  - PostgreSQL
-  - Oracle
-  - MCP
-  - 個人開発
-private: false
-updated_at: ''
-id: null
-organization_url_name: null
-slide: false
-ignorePublish: false
-posting_campaign_uuid: null
-agreed_posting_campaign_term: false
----
 ## はじめに
 
 テーブル定義書・ER図を自動生成し、AIにテーブル構造を答えさせるツール「dbxray」を作成したので紹介します。
@@ -23,17 +6,17 @@ agreed_posting_campaign_term: false
 
 :::note info
 以前[【PostgreSQL】Markdown形式のテーブル定義書を自動生成するツールを作ってみた](https://qiita.com/ebichan_88/items/bc1ad07b6a7fd1479290)で紹介した、テーブル定義書のみを出力するツールの改良版です。
-ツールの名前は、exportTableDefinitionからdbxrayに変更しました[^1]。
+ツールの名前は、`exportTableDefinition`から`dbxray`に変更しました[^1]。
 :::
 
 [^1]: 旧名はテーブル定義書に特化した名前だったため、より汎用的な名前にしたいと考えていました。当初はGitLensにならって「dblens」とする予定でしたが、同名のリポジトリが既に存在しているようだったため、重複しない名前にしました。
 
 例えば、MCPサーバーを登録したClaude Codeには、次の質問ができます。
 
-- 従業員まわりのテーブルを探して
-- 監査ログから部署名を出したいけど、どうJOINすればいい？
-- employeeテーブルを変更したら、どこに影響する？
-- employeeと構造が似たテーブルはある？
+- **従業員まわりのテーブルを探して**
+- **監査ログから部署名を出したいけど、どうJOINすればいい？**
+- **employeeテーブルを変更したら、どこに影響する？**
+- **employeeと構造が似たテーブルはある？**
 
 ## 想定読者
 
@@ -48,7 +31,7 @@ agreed_posting_campaign_term: false
 なお、配布用のzipにJava実行環境を同梱しているため、Javaのインストールは不要です。
 :::
 
-dbxrayは、[ebichan88/dbxray](https://github.com/ebichan88/dbxray)のGitHubリポジトリで公開しています。
+`dbxray`は、[ebichan88/dbxray](https://github.com/ebichan88/dbxray)のGitHubリポジトリで公開しています。
 
 本記事の出力例・実行例は、すべてリポジトリに同梱しているサンプルDBから出力したものです。
 細かい設定や出力の仕様は、[CLIリファレンス](https://github.com/ebichan88/dbxray/blob/main/docs/usage/cli.md)と[MCPサーバーのドキュメント](https://github.com/ebichan88/dbxray/blob/main/docs/usage/mcp-server.md)をご覧ください。
@@ -80,7 +63,7 @@ dbxrayは、[ebichan88/dbxray](https://github.com/ebichan88/dbxray)のGitHubリ�
 
 ## dbxrayとは
 
-dbxrayは、DBに接続し、テーブル一覧・テーブル定義書・ER図などをMarkdown形式で出力するツールです。
+`dbxray`は、DBに接続し、テーブル一覧・テーブル定義書・ER図などをMarkdown形式で出力するツールです。
 あわせて、出力したデータをAIから検索できるようにするMCPサーバーも同梱しています。
 
 出力物は次の通りです。
@@ -153,25 +136,26 @@ output
 DBごとに、出力した全ドキュメントへの索引となるREADMEを出力します。
 スキーマごとのオブジェクトの数や、論理名が記述されているテーブル・カラムの数などの集計も載せています。
 
-![READMEの出力例](TODO:01_readme.png)
+![READMEの出力例](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/292212/e4c43cd9-166c-464e-80b2-91a2f57d7913.png)
 
 ### テーブル一覧
 
 対象テーブルの一覧と、各テーブル定義書へのリンクを出力します。
 
-![テーブル一覧の出力例](TODO:02_table_list.png)
+![テーブル一覧の出力例](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/292212/c7e1d6a6-7aa9-4a77-a1f6-5b887367b926.png)
 
 ### テーブル定義書
 
 テーブルごとに、テーブル情報・カラム情報・インデックス・制約・外部キー・被参照・トリガーなどの情報を出力します。
 次のキャプチャは、`employee`テーブルの定義書です。
 
-![テーブル定義書の出力例](TODO:03_table_definition.png)
+![テーブル定義書の出力例](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/292212/4ba845ba-d9f8-41d5-ba1a-639f0d1e4325.png)
+
 
 被参照情報には、このテーブルを参照しているテーブルを一覧にしています。
 外部キーは参照する側のテーブルにしか定義されないため、参照される側から関連を辿れるようにしています。
 
-![テーブル定義書の外部キー情報・被参照情報](TODO:04_foreign_keys.png)
+![テーブル定義書の外部キー情報・被参照情報](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/292212/5f68c6e4-0e36-466d-8091-6aed341d069d.png)
 
 ### ER図
 
@@ -286,7 +270,7 @@ CREATE UNIQUE INDEX ON child (parent_id) WHERE deleted_at IS NULL;
 ここまでの出力例では、外部キー制約やコメントが設定されているテーブルを中心に紹介しました。
 ですが、実際の現場のDBでは、外部キー制約やコメントが整備されていなかったり、テーブル数が多すぎてER図を一度に出力しても読めなかったりすることも多いと思います。
 
-dbxrayには、このような環境でも使えるようにするための機能を用意しています。
+`dbxray`には、このような環境でも使えるようにするための機能を用意しています。
 
 ### 外部キー制約やコメントの代わりに情報を書き足す
 
@@ -315,13 +299,15 @@ relations:
 
 `tables`に記述した説明・備考は、テーブル定義書のテーブル説明や備考の欄に反映されます。
 
-![サイドカーYAMLの内容を反映したdepartmentのテーブル定義書](TODO:05_sidecar_department.png)
+![サイドカーYAMLの内容を反映したdepartmentのテーブル定義書](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/292212/d4d493cb-890c-4ed5-ad57-0b47cd47ce21.png)
+
 
 `relations`に記述した関連は、論理リレーションとして扱います。
 テーブル定義書では外部キー情報とは別のセクションに載せ、ER図では物理的な外部キーと区別するため**破線**で描画します。
 前述の`employee`のER図で、`audit_log`との線が破線になっているのが論理リレーションです。
 
-![audit_logのテーブル定義書の論理リレーション情報](TODO:06_logical_relation.png)
+![audit_logのテーブル定義書の論理リレーション情報](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/292212/e6d3c845-1b66-4650-a2c4-2eeee75fcabf.png)
+
 
 どこまで情報を補えたかは、READMEの集計で確認できます。
 
@@ -366,7 +352,7 @@ viewpoints:
 
 観点を宣言すると、観点ごとにER図と所属テーブルの一覧をまとめたページを出力します。
 
-![観点「人事管理」のページ](TODO:07_viewpoint.png)
+![観点「人事管理」のページ](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/292212/37ede01f-4872-41bb-bce1-f32954489412.png)
 
 ### ドキュメントの更新漏れを検知する
 
@@ -419,11 +405,11 @@ flowchart LR
 ```
 
 ポイントは、**MCPサーバーがDBに接続しない**点です。
-dbxrayが出力したスナップショットを読み込むだけなので、AIの実行環境にDBの接続情報を置く必要がなく、テーブルの実データがAIに渡ることもありません。
+`dbxray`が出力したスナップショットを読み込むだけなので、AIの実行環境にDBの接続情報を置く必要がなく、テーブルの実データがAIに渡ることもありません。
 
 また、人が読むテーブル定義書とAIが参照する情報は、同じ取得結果から出力しているため、両者に食い違いは生じません。
 
-一方で、DBを変更しても、dbxrayを再実行してスナップショットを更新するまで、変更内容はAIから参照できません[^2]。
+一方で、DBを変更しても、`dbxray`を再実行してスナップショットを更新するまで、変更内容はAIから参照できません[^2]。
 
 [^2]: この鮮度の問題には、前述の`--check`をCIで実行し、スナップショットとDBの乖離を検知することで対応する想定です。
 
@@ -533,7 +519,7 @@ LEFT JOIN sample.employee e ON e.employee_id = a.record_id
 LEFT JOIN sample.department d ON d.department_id = e.department_id;
 ```
 
-外部キー制約の無いDBでは、AIはカラム名から関連を推測してJOINを書くことになりますが、dbxrayを使えば人が宣言した関連をもとに回答できます。
+外部キー制約の無いDBでは、AIはカラム名から関連を推測してJOINを書くことになりますが、`dbxray`を使えば人が宣言した関連をもとに回答できます。
 
 #### 変更の影響範囲を調べる
 
