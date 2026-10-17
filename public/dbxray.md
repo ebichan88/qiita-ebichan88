@@ -71,7 +71,6 @@ dbxrayは、[ebichan88/dbxray](https://github.com/ebichan88/dbxray)のGitHubリ�
   - [AIに質問できること](#aiに質問できること)
   - [構造の似たテーブルを探す仕組み](#構造の似たテーブルを探す仕組み)
   - [ツールの一覧](#ツールの一覧)
-  - [MCP Java SDKで作るときの注意点](#mcp-java-sdkで作るときの注意点)
 - [開発で苦労したこと](#開発で苦労したこと)
 - [おわりに](#おわりに)
 - [参考サイト](#参考サイト)
@@ -637,43 +636,6 @@ v0.4.2時点で、次の19個のツールを提供しています。
 ツールのほかに、利用者が`@`でテーブルの定義を会話に添付できるリソースも提供しています。
 ターミナル版のClaude Codeでは、入力欄に`@受注明細`のように論理名・物理名を入力すると候補が表示されます。
 
-### MCP Java SDKで作るときの注意点
-
-最後に、JavaでMCPサーバーを実装する際の注意点を2つ紹介します。
-
-**標準出力に書き込まない**
-
-dbxrayのMCPサーバーは、MCPクライアントから子プロセスとして起動され、標準入出力で通信します。
-この方式では標準出力がMCPのメッセージ専用となるため、`System.out.println`でログを出力すると、メッセージに混入して通信が壊れます。
-
-そのため、利用者向けの表示はすべて標準エラー出力に出し、標準出力へ書き込んでいないことをArchUnitのテストで検査しています。
-
-**ツールの並行呼び出しで応答が止まる**
-
-MCP Java SDKの`mcp-core` 2.0.1は、既定でツールの呼び出しを複数のスレッドで並行に実行します。
-しかし、応答の書き込みが同時に発生すると、応答が止まる不具合があります。
-MCPクライアントは独立したツールを並行に呼び出すため、通常の利用でも発生します。
-
-この不具合は[java-sdk#686](https://github.com/modelcontextprotocol/java-sdk/issues/686)で報告されています。
-dbxrayでは`immediateExecution(true)`を指定し、標準入力を読み込むスレッドで1つずつ実行することで回避しています。
-
-```java:McpServerMain.java（一部抜粋）
-    McpServer.sync(new StdioServerTransportProvider(jsonMapper))
-        .serverInfo(SERVER_NAME, version())
-        .instructions(INSTRUCTIONS)
-        .capabilities(ServerCapabilities.builder().tools(false).resources(false, false).build())
-        .jsonMapper(jsonMapper)
-        .tools(new TableDefinitionTools(catalog).specifications())
-        .resources(new TableDefinitionResources(catalog).specifications())
-        // 標準入力を読むスレッドで1つずつ実行させて回避する
-        .immediateExecution(true)
-        .build();
-```
-
-ツールの処理はメモリ上の検索のみで高速なため、直列に実行しても実用上の影響は小さいと考えています[^6]。
-
-[^6]: 修正はSDKのmainブランチに取り込まれていますが、執筆時点では未リリースです。修正版がリリースされた時点で、`immediateExecution`の指定を見直す予定です。
-
 ## 開発で苦労したこと
 
 今回の改修の大部分はClaude Codeで実装しましたが、最も苦労したのは**AIが作成したソースコードの理解**です。
@@ -702,4 +664,3 @@ dbxrayでは`immediateExecution(true)`を指定し、標準入力を読み込む
 
 - [dbxray](https://github.com/ebichan88/dbxray)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
-- [MCP Java SDK](https://github.com/modelcontextprotocol/java-sdk)
