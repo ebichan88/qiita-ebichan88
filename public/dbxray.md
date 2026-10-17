@@ -629,6 +629,14 @@ LEFT JOIN sample.department d ON d.department_id = e.department_id;
 `find_similar_tables`は、カラム名の集合同士を**重み付きJaccard係数**で比較します。
 比較の前に、カラム名の大文字小文字・全角半角を統一します。
 
+通常のJaccard係数は、共通するカラムの数を、どちらかのテーブルにあるカラムの数で割って求めます。
+
+```math
+\text{Jaccard係数} = \frac{\text{共通のカラムの数}}{\text{両者のカラムの和集合の数}}
+```
+
+重み付きJaccard係数では、カラムの数の代わりに、カラムごとの重みの合計で計算します。
+
 ```math
 \text{類似度} = \frac{\sum_{c \in \text{共通のカラム}} w(c)}{\sum_{c \in \text{両者のカラムの和集合}} w(c)}
 ,\qquad
