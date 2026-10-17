@@ -47,7 +47,8 @@ DBに接続してテーブル定義書を出力するだけでなく、出力し
 
 :::note info
 本記事の内容は、執筆時点の最新版であるv0.4.2に基づいています。
-対応DBMSはPostgreSQL 13以上とOracle 12c以上で、動作環境はJava 21です。
+対応DBMSはPostgreSQLとOracleで、推奨バージョンはPostgreSQL 13以上・Oracle 12c以上です。
+動作環境はJava 21です。
 なお、配布用のzipにJava実行環境を同梱しているため、Javaのインストールは不要です。
 :::
 
@@ -95,7 +96,8 @@ DBに接続してテーブル定義書を出力するだけでなく、出力し
 | ER図 | 外部キーの関係を表すMermaid記法の図。テーブル単位とスキーマ単位で出力する |
 | 観点ごとのページ | 人事管理などの業務の単位でまとめた、テーブルのER図と一覧 |
 | 関数・シーケンス・ユーザー定義型の一覧と個別ページ | 関数・プロシージャの定義本体や、ENUMの値など |
-| スナップショット | 上記と同じ情報を、機械可読なJSON Lines形式にしたもの。MCPサーバーの入力になる |
+| スナップショット | DBから取得したスキーマの情報を、機械可読なJSON Lines形式にしたもの。MCPサーバーの入力になる |
+| 参考情報 | 観点など、スキーマの情報ではないがAIに渡したい情報。スナップショットとあわせてMCPサーバーの入力になる |
 
 ## 使い方
 
@@ -135,12 +137,15 @@ output
 │     ├─table
 │     │  └─employee.md
 │     └─function
-└─snapshot                        ・・・ スナップショット（MCPサーバーの入力）
+├─snapshot                        ・・・ スナップショット（MCPサーバーの入力）
+│  └─testdb
+│     ├─database.json
+│     └─sample
+│        ├─tables.jsonl
+│        └─functions.jsonl
+└─insights                        ・・・ 参考情報（MCPサーバーの入力）
    └─testdb
-      ├─database.json
-      └─sample
-         ├─tables.jsonl
-         └─functions.jsonl
+      └─viewpoints.json
 ```
 
 ## 出力されるドキュメント
@@ -269,7 +274,7 @@ ER図は、次の粒度で出力します。
 一意性は、カラム名の一致ではなく**包含関係**で判定します。
 
 ```sql:一意性を包含関係で判定する例
--- 外部キーは (a, b) の2カラム
+-- 外部キーは、NOT NULLの a・b の2カラム
 ALTER TABLE child ADD FOREIGN KEY (a, b) REFERENCES parent (a, b);
 -- a だけで一意なら、(a, b) の組も一意になるため1対1と判定する
 ALTER TABLE child ADD UNIQUE (a);
@@ -337,7 +342,7 @@ relations:
 
 ```mermaid
 flowchart TD
-    A[スキーマ別ER図] --> B{テーブル数が上限以内？}
+    A[スキーマ別ER図] --> B{関連を持つテーブルの数が<br>上限以内？}
     B -->|はい| C[1枚に描画する]
     B -->|いいえ| D[つながったテーブルのまとまり<br>＝連結成分を求める]
     D --> E[上限に収まる範囲で<br>小さなまとまりを同じグループにまとめる]
@@ -346,7 +351,7 @@ flowchart TD
     F -->|いいえ| H[描画を省略して<br>外部キーの一覧表を掲載する]
 ```
 
-小さなまとまりを同じグループにまとめるのは、1テーブルだけのグループが大量に生成されるのを避けるためです。
+小さなまとまりを同じグループにまとめるのは、2テーブルだけの小さなER図が大量に生成されるのを避けるためです。
 まとめたテーブル同士は線でつながらないため、関連を誤読するおそれはありません。
 
 ### 業務の単位でテーブルをまとめる
@@ -380,21 +385,21 @@ viewpoints:
 `--check`を付けて実行すると、コミット済みのスナップショットと、現在のDBから生成したスナップショットを比較します。
 マイグレーション後のドキュメントの再出力漏れを、CIで検知するための機能です。
 
-内容に差分があるオブジェクトは、次のようにunified diff形式で表示します。
+例えば、サンプルDBの`employee`テーブルに`nickname`カラムを追加してから実行すると、次のように差分をunified diff形式で表示します。
 
-```text:--checkの出力例
+```text:--checkの出力（一部抜粋）
 Content differs:
  - table sample.employee
-
 --- committed/testdb/sample/tables.jsonl (table sample.employee)
 +++ generated/testdb/sample/tables.jsonl (table sample.employee)
-@@ -8,6 +8,7 @@
-   "columns": [
-     {"name":"employee_id","type":"integer","primaryKey":true,"notNull":true}
-     {"name":"name","type":"character varying(100)","primaryKey":false,"notNull":true}
-+    {"name":"nickname","type":"text","primaryKey":false,"notNull":false}
+@@ -15,6 +15,7 @@
+     {"name":"profile","logicalName":"プロフィール（JSON）","type":"jsonb","primaryKey":false,"notNull":true,"defaultValue":"'{}'::jsonb"}
+     {"name":"hired_date","logicalName":"入社日","type":"date","primaryKey":false,"notNull":true,"defaultValue":"CURRENT_DATE"}
+     {"name":"updated_at","logicalName":"更新日時","type":"timestamp without time zone","primaryKey":false,"notNull":true,"defaultValue":"now()"}
++    {"name":"nickname","logicalName":"ニックネーム","type":"text","primaryKey":false,"notNull":false}
    ]
    "indexes": [
+     {"name":"employee_employee_code_key","method":"btree","unique":true,"primary":false,"definition":"CREATE UNIQUE INDEX employee_employee_code_key ON sample.employee USING btree (employee_code)"}
 ```
 
 差分がある場合はCIのジョブを失敗させられるため、ドキュメントの更新漏れに気づけます。
@@ -414,17 +419,20 @@ Content differs:
 flowchart LR
     DB[(DB)] -->|dbxray（CLI）で出力| MD
     DB -->|dbxray（CLI）で出力| SNAP
+    DB -->|dbxray（CLI）で出力| INS
     subgraph GIT[出力先（Gitで管理）]
         MD[テーブル定義書・ER図<br>（Markdown）]
         SNAP[スナップショット<br>（JSON Lines）]
+        INS[参考情報<br>（観点など）]
     end
     MD --> HUMAN[人が読む]
     SNAP -->|起動時に読み込む| MCP[dbxray-mcp<br>（MCPサーバー）]
+    INS -->|起動時に読み込む| MCP
     AI[Claude Code等] -->|stdioで起動・呼び出し| MCP
 ```
 
 ポイントは、**MCPサーバーがDBに接続しない**点です。
-`dbxray`が出力したスナップショットを読み込むだけなので、AIの実行環境にDBの接続情報を置く必要がなく、テーブルの実データがAIに渡ることもありません。
+`dbxray`が出力したスナップショットと参考情報を読み込むだけなので、AIの実行環境にDBの接続情報を置く必要がなく、テーブルの実データがAIに渡ることもありません。
 
 また、人が読むテーブル定義書とAIが参照する情報は、同じ取得結果から出力しているため、両者に食い違いは生じません。
 
@@ -440,6 +448,11 @@ MCPサーバーの本体は、配布用zipに含まれる`mcp/dbxray-mcp.jar`で
 ```bash:Claude Codeへの登録（Linux／macOSの例）
 claude mcp add dbxray -- /opt/dbxray-linux/runtime/bin/java -jar /opt/dbxray-linux/mcp/dbxray-mcp.jar --snapshot=/work/schema-docs/output/snapshot
 ```
+
+:::note warn
+MCPサーバーは、`--snapshot`で指定したディレクトリと同じ階層の`insights`から参考情報を読み込みます。
+`snapshot`だけを共有すると観点や関数の利用テーブルを参照できないため、`snapshot`と`insights`の両方をコミットしてください。
+:::
 
 チームで共有する場合は、アプリのリポジトリに`.mcp.json`をコミットし、環境ごとに異なるパスは環境変数で指定します。
 
@@ -535,7 +548,9 @@ SELECT a.changed_at, a.action, e.employee_name, d.department_name
 FROM sample.audit_log a
 -- record_idはNULLを許容する0..1対多の関連なので、外部結合にしておく
 LEFT JOIN sample.employee e ON e.employee_id = a.record_id
-LEFT JOIN sample.department d ON d.department_id = e.department_id;
+LEFT JOIN sample.department d ON d.department_id = e.department_id
+-- record_idには他のテーブルの主キー値も入るため、employeeの変更に絞る
+WHERE a.table_name = 'employee';
 ```
 
 外部キー制約の無いDBでは、AIはカラム名から関連を推測してJOINを書くことになりますが、`dbxray`を使えば人が宣言した関連をもとに回答できます。
@@ -552,7 +567,7 @@ LEFT JOIN sample.department d ON d.department_id = e.department_id;
 | 間接的に参照しているテーブル | `attendance_note`。`attendance`を経由する |
 | 参照しているビュー | `employee_directory_view`と、それを参照する`attendance_monthly_view` |
 | トリガー | `trg_employee_audit`、`trg_employee_set_updated_at` |
-| 使っている関数・プロシージャ | `raise_salary`、`close_project`、`department_headcount`など5つ |
+| 使っている関数・プロシージャ | `raise_salary`、`close_project`、`department_headcount`など4つと、候補の`count_rows` |
 
 関数・プロシージャについては、対象テーブルを登録・参照・更新・削除のどの操作で使っているかを、`operations`にC・R・U・Dで返します。
 また、ビューのトリガーから呼び出されて`employee`に登録する関数のように、トリガー経由の利用も`calledByTriggers`で確認できます。
@@ -574,6 +589,9 @@ LEFT JOIN sample.department d ON d.department_id = e.department_id;
   }
 ]
 ```
+
+候補とした`count_rows`は、スキーマ修飾の無い`employee`を参照しているため、実行時の`search_path`によっては別のテーブルを指す可能性があります。
+このような関数は確定扱いにせず、`match: possible`を付けて区別します。
 
 関数の利用テーブルは、関数の定義本体から機械的に抽出したもので、`--preview`を付けて実行した場合のみ有効になるプレビュー機能です[^4]。
 
@@ -646,6 +664,7 @@ w(c) = \ln \frac{N + 1}{\text{そのカラム名を持つテーブルの数}}
 ```
 
 ここで、$N$ はDBのテーブル数です。
+$N$ とそのカラム名を持つテーブルの数は、どちらもビューと基準のテーブル自身を除いて数えます。
 
 重み $w(c)$ は、そのカラム名を持つテーブルが多いほど小さくなります。
 これは、`id`や`created_at`のような多くのテーブルに共通する汎用的なカラムを共有しているだけで、類似と判定しないためです。
@@ -662,9 +681,9 @@ w(c) = \ln \frac{N + 1}{\text{そのカラム名を持つテーブルの数}}
   - `identical`はカラムが同じ、`superset`は相手が基準の全カラムを持つ、`subset`は相手が基準の一部だけを持つ、`overlap`はそれ以外
 - `typeMismatches`: 同名で型が違うカラム
   - 型そのものが違うのか、桁数だけが違うのかも区別する
-- `relatedToBase`: 基準と外部キーで直接つながるテーブルかどうか
+- `relatedToBase`: 基準と外部キー・論理リレーションで直接つながるテーブルかどうか
 
-外部キーでつながるテーブルを除外せず印を付けるのは、履歴テーブルや拡張テーブルが基準のテーブルを参照していることが多いためです。
+基準とつながるテーブルを除外せず印を付けるのは、履歴テーブルや拡張テーブルが基準のテーブルを参照していることが多いためです。
 
 なお、類似度はカラム名の構造の近さを示すもので、同じ意味のテーブルとは限りません。
 同じ目的のテーブルかどうかは、呼び出したAIが`get_table`で説明や定義を確認して判断する役割分担にしています[^5]。
